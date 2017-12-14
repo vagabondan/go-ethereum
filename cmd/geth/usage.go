@@ -20,10 +20,12 @@ package main
 
 import (
 	"io"
+	"sort"
 
 	"github.com/ethereum/go-ethereum/cmd/utils"
 	"github.com/ethereum/go-ethereum/internal/debug"
 	"gopkg.in/urfave/cli.v1"
+	"strings"
 )
 
 // AppHelpTemplate is the test template for the default, global app help topic.
@@ -71,13 +73,18 @@ var AppHelpFlagGroups = []flagGroup{
 			utils.NetworkIdFlag,
 			utils.TestnetFlag,
 			utils.RinkebyFlag,
-			utils.DevModeFlag,
 			utils.SyncModeFlag,
 			utils.EthStatsURLFlag,
 			utils.IdentityFlag,
 			utils.LightServFlag,
 			utils.LightPeersFlag,
 			utils.LightKDFFlag,
+		},
+	},
+	{Name: "DEVELOPER CHAIN",
+		Flags: []cli.Flag{
+			utils.DeveloperFlag,
+			utils.DeveloperPeriodFlag,
 		},
 	},
 	{
@@ -89,6 +96,31 @@ var AppHelpFlagGroups = []flagGroup{
 			utils.EthashDatasetDirFlag,
 			utils.EthashDatasetsInMemoryFlag,
 			utils.EthashDatasetsOnDiskFlag,
+		},
+	},
+	//{
+	//	Name: "DASHBOARD",
+	//	Flags: []cli.Flag{
+	//		utils.DashboardEnabledFlag,
+	//		utils.DashboardAddrFlag,
+	//		utils.DashboardPortFlag,
+	//		utils.DashboardRefreshFlag,
+	//		utils.DashboardAssetsFlag,
+	//	},
+	//},
+	{
+		Name: "TRANSACTION POOL",
+		Flags: []cli.Flag{
+			utils.TxPoolNoLocalsFlag,
+			utils.TxPoolJournalFlag,
+			utils.TxPoolRejournalFlag,
+			utils.TxPoolPriceLimitFlag,
+			utils.TxPoolPriceBumpFlag,
+			utils.TxPoolAccountSlotsFlag,
+			utils.TxPoolGlobalSlotsFlag,
+			utils.TxPoolAccountQueueFlag,
+			utils.TxPoolGlobalQueueFlag,
+			utils.TxPoolLifetimeFlag,
 		},
 	},
 	{
@@ -175,6 +207,10 @@ var AppHelpFlagGroups = []flagGroup{
 		}, debug.Flags...),
 	},
 	{
+		Name:  "WHISPER (EXPERIMENTAL)",
+		Flags: whisperFlags,
+	},
+	{
 		Name: "DEPRECATED",
 		Flags: []cli.Flag{
 			utils.FastSyncFlag,
@@ -182,11 +218,41 @@ var AppHelpFlagGroups = []flagGroup{
 		},
 	},
 	{
-		Name: "EXPERIMENTAL",
-		Flags: []cli.Flag{
-			utils.WhisperEnabledFlag,
-		},
+		Name: "MISC",
 	},
+}
+
+// byCategory sorts an array of flagGroup by Name in the order
+// defined in AppHelpFlagGroups.
+type byCategory []flagGroup
+
+func (a byCategory) Len() int      { return len(a) }
+func (a byCategory) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
+func (a byCategory) Less(i, j int) bool {
+	iCat, jCat := a[i].Name, a[j].Name
+	iIdx, jIdx := len(AppHelpFlagGroups), len(AppHelpFlagGroups) // ensure non categorized flags come last
+
+	for i, group := range AppHelpFlagGroups {
+		if iCat == group.Name {
+			iIdx = i
+		}
+		if jCat == group.Name {
+			jIdx = i
+		}
+	}
+
+	return iIdx < jIdx
+}
+
+func flagCategory(flag cli.Flag) string {
+	for _, category := range AppHelpFlagGroups {
+		for _, flg := range category.Flags {
+			if flg.GetName() == flag.GetName() {
+				return category.Name
+			}
+		}
+	}
+	return "MISC"
 }
 
 func init() {
@@ -198,6 +264,7 @@ func init() {
 		App        interface{}
 		FlagGroups []flagGroup
 	}
+
 	// Override the default app help printer, but only for the global app help
 	originalHelpPrinter := cli.HelpPrinter
 	cli.HelpPrinter = func(w io.Writer, tmpl string, data interface{}) {
@@ -212,6 +279,9 @@ func init() {
 			uncategorized := []cli.Flag{}
 			for _, flag := range data.(*cli.App).Flags {
 				if _, ok := categorized[flag.String()]; !ok {
+					if strings.HasPrefix(flag.GetName(), "dashboard") {
+						continue
+					}
 					uncategorized = append(uncategorized, flag)
 				}
 			}
@@ -227,6 +297,27 @@ func init() {
 			}
 			// Render out custom usage screen
 			originalHelpPrinter(w, tmpl, helpData{data, AppHelpFlagGroups})
+		} else if tmpl == utils.CommandHelpTemplate {
+			// Iterate over all command specific flags and categorize them
+			categorized := make(map[string][]cli.Flag)
+			for _, flag := range data.(cli.Command).Flags {
+				if _, ok := categorized[flag.String()]; !ok {
+					categorized[flagCategory(flag)] = append(categorized[flagCategory(flag)], flag)
+				}
+			}
+
+			// sort to get a stable ordering
+			sorted := make([]flagGroup, 0, len(categorized))
+			for cat, flgs := range categorized {
+				sorted = append(sorted, flagGroup{cat, flgs})
+			}
+			sort.Sort(byCategory(sorted))
+
+			// add sorted array to data and render with default printer
+			originalHelpPrinter(w, tmpl, map[string]interface{}{
+				"cmd":              data,
+				"categorizedFlags": sorted,
+			})
 		} else {
 			originalHelpPrinter(w, tmpl, data)
 		}

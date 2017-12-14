@@ -32,7 +32,7 @@ func TestStorageRangeAt(t *testing.T) {
 	// Create a state where account 0x010000... has a few storage entries.
 	var (
 		db, _    = ethdb.NewMemDatabase()
-		state, _ = state.New(common.Hash{}, db)
+		state, _ = state.New(common.Hash{}, state.NewDatabase(db))
 		addr     = common.Address{0x01}
 		keys     = []common.Hash{ // hashes of Keys of storage
 			common.HexToHash("340dd630ad21bf010b4e676dbfa9ba9a02175262d1fa356232cfde6cb5b47ef2"),
@@ -79,7 +79,10 @@ func TestStorageRangeAt(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		result := storageRangeAt(state.StorageTrie(addr), test.start, test.limit)
+		result, err := storageRangeAt(state.StorageTrie(addr), test.start, test.limit)
+		if err != nil {
+			t.Error(err)
+		}
 		if !reflect.DeepEqual(result, test.want) {
 			t.Fatalf("wrong result for range 0x%x.., limit %d:\ngot %s\nwant %s",
 				test.start, test.limit, dumper.Sdump(result), dumper.Sdump(&test.want))

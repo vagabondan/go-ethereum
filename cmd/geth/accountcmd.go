@@ -31,25 +31,40 @@ import (
 
 var (
 	walletCommand = cli.Command{
-		Name:     "wallet",
-		Usage:    "Import Ethereum presale wallets",
-		Action:   utils.MigrateFlags(importWallet),
-		Category: "ACCOUNT COMMANDS",
-		Flags: []cli.Flag{
-			utils.DataDirFlag,
-			utils.KeyStoreDirFlag,
-			utils.PasswordFileFlag,
-			utils.LightKDFFlag,
-		},
+		Name:      "wallet",
+		Usage:     "Manage Ethereum presale wallets",
+		ArgsUsage: "",
+		Category:  "ACCOUNT COMMANDS",
 		Description: `
-		    geth wallet [options] /path/to/my/presale.wallet
+    geth wallet import /path/to/my/presale.wallet
 
-		will prompt for your password and imports your ether presale account.
-		It can be used non-interactively with the --password option taking a
-		passwordfile as argument containing the wallet password in plaintext.
+will prompt for your password and imports your ether presale account.
+It can be used non-interactively with the --password option taking a
+passwordfile as argument containing the wallet password in plaintext.`,
+		Subcommands: []cli.Command{
+			{
 
-		`,
+				Name:      "import",
+				Usage:     "Import Ethereum presale wallet",
+				ArgsUsage: "<keyFile>",
+				Action:    utils.MigrateFlags(importWallet),
+				Category:  "ACCOUNT COMMANDS",
+				Flags: []cli.Flag{
+					utils.DataDirFlag,
+					utils.KeyStoreDirFlag,
+					utils.PasswordFileFlag,
+					utils.LightKDFFlag,
+				},
+				Description: `
+	geth wallet [options] /path/to/my/presale.wallet
+
+will prompt for your password and imports your ether presale account.
+It can be used non-interactively with the --password option taking a
+passwordfile as argument containing the wallet password in plaintext.`,
+			},
+		},
 	}
+
 	accountCommand = cli.Command{
 		Name:     "account",
 		Usage:    "Manage accounts",
@@ -218,7 +233,7 @@ func unlockAccount(ctx *cli.Context, ks *keystore.KeyStore, address string, i in
 	return accounts.Account{}, ""
 }
 
-// getPassPhrase retrieves the passwor associated with an account, either fetched
+// getPassPhrase retrieves the password associated with an account, either fetched
 // from a list of preloaded passphrases, or requested interactively from the user.
 func getPassPhrase(prompt string, confirmation bool, i int, passwords []string) string {
 	// If a list of passwords was supplied, retrieve from them
@@ -276,15 +291,28 @@ func ambiguousAddrRecovery(ks *keystore.KeyStore, err *keystore.AmbiguousAddrErr
 
 // accountCreate creates a new account into the keystore defined by the CLI flags.
 func accountCreate(ctx *cli.Context) error {
-	stack, _ := makeConfigNode(ctx)
+	cfg := gethConfig{Node: defaultNodeConfig()}
+	// Load config file.
+	if file := ctx.GlobalString(configFileFlag.Name); file != "" {
+		if err := loadConfig(file, &cfg); err != nil {
+			utils.Fatalf("%v", err)
+		}
+	}
+	utils.SetNodeConfig(ctx, &cfg.Node)
+	scryptN, scryptP, keydir, err := cfg.Node.AccountConfig()
+
+	if err != nil {
+		utils.Fatalf("Failed to read configuration: %v", err)
+	}
+
 	password := getPassPhrase("Your new account is locked with a password. Please give a password. Do not forget this password.", true, 0, utils.MakePasswordList(ctx))
 
-	ks := stack.AccountManager().Backends(keystore.KeyStoreType)[0].(*keystore.KeyStore)
-	account, err := ks.NewAccount(password)
+	address, err := keystore.StoreKey(keydir, password, scryptN, scryptP)
+
 	if err != nil {
 		utils.Fatalf("Failed to create account: %v", err)
 	}
-	fmt.Printf("Address: {%x}\n", account.Address)
+	fmt.Printf("Address: {%x}\n", address)
 	return nil
 }
 

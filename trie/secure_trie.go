@@ -156,6 +156,11 @@ func (t *SecureTrie) Root() []byte {
 	return t.trie.Root()
 }
 
+func (t *SecureTrie) Copy() *SecureTrie {
+	cpy := *t
+	return &cpy
+}
+
 // NodeIterator returns an iterator that returns nodes of the underlying trie. Iteration
 // starts at the key after the given start key.
 func (t *SecureTrie) NodeIterator(start []byte) NodeIterator {
@@ -194,10 +199,10 @@ func (t *SecureTrie) secKey(key []byte) []byte {
 // invalid on the next call to hashKey or secKey.
 func (t *SecureTrie) hashKey(key []byte) []byte {
 	h := newHasher(0, 0)
-	h.sha.Reset()
-	h.sha.Write(key)
-	buf := h.sha.Sum(t.hashKeyBuf[:0])
-	returnHasherToPool(h)
+	calculator := h.newCalculator()
+	calculator.sha.Write(key)
+	buf := calculator.sha.Sum(t.hashKeyBuf[:0])
+	h.returnCalculator(calculator)
 	return buf
 }
 

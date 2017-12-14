@@ -17,8 +17,10 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/cmd/utils"
@@ -30,14 +32,12 @@ import (
 
 var (
 	consoleFlags = []cli.Flag{utils.JSpathFlag, utils.ExecFlag, utils.PreloadJSFlag}
-)
 
-var (
 	consoleCommand = cli.Command{
 		Action:   utils.MigrateFlags(localConsole),
 		Name:     "console",
 		Usage:    "Start an interactive JavaScript environment",
-		Flags:    append(append(nodeFlags, rpcFlags...), consoleFlags...),
+		Flags:    append(append(append(nodeFlags, rpcFlags...), consoleFlags...), whisperFlags...),
 		Category: "CONSOLE COMMANDS",
 		Description: `
 The Geth console is an interactive shell for the JavaScript runtime environment
@@ -114,7 +114,18 @@ func localConsole(ctx *cli.Context) error {
 // console to it.
 func remoteConsole(ctx *cli.Context) error {
 	// Attach to a remotely running geth instance and start the JavaScript console
-	client, err := dialRPC(ctx.Args().First())
+	endpoint := ctx.Args().First()
+	if endpoint == "" {
+		path := node.DefaultDataDir()
+		if ctx.GlobalIsSet(utils.DataDirFlag.Name) {
+			path = ctx.GlobalString(utils.DataDirFlag.Name)
+		}
+		if path != "" && ctx.GlobalBool(utils.TestnetFlag.Name) {
+			path = filepath.Join(path, "testnet")
+		}
+		endpoint = fmt.Sprintf("%s/geth.ipc", path)
+	}
+	client, err := dialRPC(endpoint)
 	if err != nil {
 		utils.Fatalf("Unable to attach to remote geth: %v", err)
 	}
